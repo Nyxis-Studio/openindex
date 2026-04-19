@@ -4,6 +4,7 @@ $targetRoot = Join-Path $env:USERPROFILE ".config\opencode\plugins\embedding-cac
 $commandFile = Join-Path $env:USERPROFILE ".config\opencode\commands\embedding.md"
 $statusCommandFile = Join-Path $env:USERPROFILE ".config\opencode\commands\embedding-status.md"
 $testCommandFile = Join-Path $env:USERPROFILE ".config\opencode\commands\embedding-test.md"
+$skillTargetDir = Join-Path $env:USERPROFILE ".agents\skills\index-tool"
 
 if (Test-Path $targetRoot) {
   Remove-Item -Recurse -Force $targetRoot
@@ -25,4 +26,9 @@ if (Test-Path $statusCommandFile) {
 if (Test-Path $testCommandFile) {
   Remove-Item -Force $testCommandFile
   Write-Host "Test command removed: $testCommandFile" -ForegroundColor Green
+}
+
+if (Test-Path $skillTargetDir) {
+  Remove-Item -Recurse -Force $skillTargetDir
+  Write-Host "Skill removed: $skillTargetDir" -ForegroundColor Green
 }

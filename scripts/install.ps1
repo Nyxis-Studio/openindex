@@ -10,6 +10,9 @@ $commandsDir = Join-Path $env:USERPROFILE ".config\opencode\commands"
 $commandFile = Join-Path $commandsDir "embedding.md"
 $statusCommandFile = Join-Path $commandsDir "embedding-status.md"
 $testCommandFile = Join-Path $commandsDir "embedding-test.md"
+$skillsRoot = Join-Path $env:USERPROFILE ".agents\skills"
+$skillSourceDir = Join-Path $sourceRoot "skills\index-tool"
+$skillTargetDir = Join-Path $skillsRoot "index-tool"
 
 if (Test-Path $targetRoot) {
   Remove-Item -Recurse -Force $targetRoot
@@ -62,6 +65,14 @@ $testShellLine = '!`bun "' + $cliPath + '" test "$ARGUMENTS"`'
   $testShellLine
 ) | Set-Content -Path $testCommandFile -Encoding UTF8
 
+if (Test-Path $skillSourceDir) {
+  New-Item -ItemType Directory -Path $skillsRoot -Force | Out-Null
+  if (Test-Path $skillTargetDir) {
+    Remove-Item -Recurse -Force $skillTargetDir
+  }
+  Copy-Item $skillSourceDir $skillTargetDir -Recurse -Force
+}
+
 if ($GoogleApiKey -and $GoogleApiKey.Trim().Length -gt 0) {
   setx GOOGLE_API_KEY "$GoogleApiKey" | Out-Null
   Write-Host "GOOGLE_API_KEY configured successfully (open a new terminal/OpenCode session)." -ForegroundColor Green
@@ -71,4 +82,7 @@ Write-Host "Plugin installed at: $targetRoot" -ForegroundColor Green
 Write-Host "Global command installed at: $commandFile" -ForegroundColor Green
 Write-Host "Status command installed at: $statusCommandFile" -ForegroundColor Green
 Write-Host "Test command installed at: $testCommandFile" -ForegroundColor Green
+if (Test-Path $skillTargetDir) {
+  Write-Host "Skill installed at: $skillTargetDir" -ForegroundColor Green
+}
 Write-Host "Restart OpenCode and use /embedding" -ForegroundColor Yellow

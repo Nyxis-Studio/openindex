@@ -21,27 +21,24 @@ Automatic indexing:
 - on workspace load, the plugin checks and indexes what changed.
 - while editing files, it reindexes automatically (with debounce).
 
-## Quick setup
+## Standard plugin setup (recommended)
 
-1. Install the plugin globally:
+Add the package name in your OpenCode config:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@nyxis-studios/openindex"]
+}
 ```
 
-Or install and set the key in one command:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -GoogleApiKey "YOUR_KEY_HERE"
-```
-
-2. Set your Google API key:
+Then set your Google API key:
 
 ```powershell
 setx GOOGLE_API_KEY "YOUR_KEY_HERE"
 ```
 
-3. Restart OpenCode and run:
+Restart OpenCode and run:
 
 ```text
 /embedding
@@ -62,9 +59,19 @@ Use the index_search tool to fetch context about "your query".
 
 No per-project setup is required.
 
-The installer copies the plugin to `~/.config/opencode/plugins/embedding-cache-plugin`.
-It also installs the global command at `~/.config/opencode/commands/embedding.md`.
-These commands execute the plugin CLI script (`bun .../src/cli.ts`).
+When package lifecycle scripts are enabled, installation also copies the `index-tool` skill to
+`~/.agents/skills/index-tool` via `scripts/postinstall.mjs`.
+
+## Manual install fallback
+
+If you prefer manual install from this repository:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
+```
+
+The installer copies the plugin to `~/.config/opencode/plugins/embedding-cache-plugin`, installs
+global commands in `~/.config/opencode/commands/`, and installs `index-tool` in `~/.agents/skills/index-tool`.
 
 ## What it does
 
