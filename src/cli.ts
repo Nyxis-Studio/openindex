@@ -1,15 +1,43 @@
 import { getIndexStatus, testQuery } from "./indexer/inspect"
+import { writeLocalIndexerLog } from "./indexer/local-log"
 import { runIndexing } from "./indexer/run-indexing"
 
 const reporter = {
-  info: (message: string) => console.log(`[info] ${message}`),
-  success: (message: string) => console.log(`[success] ${message}`),
-  error: (message: string) => console.error(`[error] ${message}`),
-  progress: (message: string) => console.log(`[progress] ${message}`),
+  info: (message: string) => {
+    console.log(`[info] ${message}`)
+    void localLog("info", message)
+  },
+  success: (message: string) => {
+    console.log(`[success] ${message}`)
+    void localLog("info", message)
+  },
+  error: (message: string) => {
+    console.error(`[error] ${message}`)
+    void localLog("error", message)
+  },
+  progress: (message: string) => {
+    console.log(`[progress] ${message}`)
+    void localLog("debug", message)
+  },
   log: (message: string, extra?: Record<string, unknown>) => {
     if (extra) console.log(`[log] ${message}`, JSON.stringify(extra))
     else console.log(`[log] ${message}`)
+    void localLog("info", message, extra)
   },
+}
+
+async function localLog(level: "debug" | "info" | "warn" | "error", message: string, extra?: Record<string, unknown>) {
+  try {
+    await writeLocalIndexerLog({
+      worktree: process.cwd(),
+      level,
+      source: "cli",
+      message,
+      ...(extra ? { extra } : {}),
+    })
+  } catch {
+    // Ignore local logger failures in CLI mode.
+  }
 }
 
 const args = process.argv.slice(2)

@@ -6,6 +6,14 @@ export type RetryConfig = {
   maxDelayMs: number
 }
 
+export type DebugConfig = {
+  enabled: boolean
+  level: "debug" | "info" | "warn" | "error"
+  logPerformance: boolean
+  logApiCalls: boolean
+  logCosts: boolean
+}
+
 export type IndexingConfig = {
   include: string[]
   exclude: string[]
@@ -19,8 +27,15 @@ export type IndexingConfig = {
   googleModel: string
   googleApiKey?: string
   googleApiKeyEnv: string
+  googleEmbeddingCostPer1MInputTokensUsd: number
+  googleEmbedBatchSize: number
+  googleApiMinIntervalMs: number
+  autoIndexOnStartup: boolean
+  autoIndexOnChange: boolean
+  autoIndexDebounceMs: number
   progressEveryPercent: number
   retry: RetryConfig
+  debug: DebugConfig
 }
 
 export type FileState = {
@@ -65,12 +80,29 @@ export type VectorRecord = {
   metadata: Record<string, string | number | boolean | string[]>
 }
 
-export type VectorCacheFile = {
+export type VectorShardFile = {
   version: number
+  path: string
   model: string
   dimension: number
   updatedAt: string
   records: VectorRecord[]
+}
+
+export type VectorManifestFileEntry = {
+  path: string
+  shard: string
+  chunkCount: number
+  contentHash?: string
+  updatedAt: string
+}
+
+export type VectorManifestFile = {
+  version: number
+  model: string
+  dimension: number
+  updatedAt: string
+  files: Record<string, VectorManifestFileEntry>
 }
 
 export type IndexSummary = {

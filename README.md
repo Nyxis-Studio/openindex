@@ -1,81 +1,131 @@
 # OpenCode Embedding Cache Plugin
 
-Plugin standalone para OpenCode que adiciona o comando `/embedding`.
-Esses comandos sao scriptados: disparam indexacao local automaticamente.
+Standalone OpenCode plugin that adds the `/embedding` command.
+These commands are scripted and trigger local indexing.
 
-Tambem adiciona:
+It also adds:
 
-- `/embedding-status` para ver status do indice.
-- `/embedding-test <consulta>` para validar busca semantica.
+- `/embedding-status` to inspect index status.
+- `/embedding-test <query>` to validate semantic retrieval.
 
-Tool nativa para o agente:
+Native tool exposed to the agent:
 
-- `index_search` (busca vetorial por chunks no cache local).
+- `index_search` (vector search over local indexed chunks).
 
-## Setup rapido (simples)
+Documentation skill included in this repository:
 
-1. Instale o plugin globalmente:
+- `skills/index-tool/SKILL.md` (usage guide and troubleshooting).
+
+Automatic indexing:
+
+- on workspace load, the plugin checks and indexes what changed.
+- while editing files, it reindexes automatically (with debounce).
+
+## Quick setup
+
+1. Install the plugin globally:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 ```
 
-Ou instale e configure a chave no mesmo comando:
+Or install and set the key in one command:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -GoogleApiKey "SUA_CHAVE_AQUI"
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -GoogleApiKey "YOUR_KEY_HERE"
 ```
 
-2. Configure sua chave Google:
+2. Set your Google API key:
 
 ```powershell
-setx GOOGLE_API_KEY "SUA_CHAVE_AQUI"
+setx GOOGLE_API_KEY "YOUR_KEY_HERE"
 ```
 
-3. Reinicie o OpenCode e rode:
+3. Restart OpenCode and run:
 
 ```text
 /embedding
 ```
 
-Para monitorar/testar:
+To monitor and test:
 
 ```text
 /embedding-status
-/embedding-test "campeao com dano alto"
+/embedding-test "high damage champion"
 ```
 
-Se quiser forcar o uso da tool pelo agente:
+To explicitly ask the agent to use the tool:
 
 ```text
-Use a tool index_search para buscar contexto sobre "sua consulta".
+Use the index_search tool to fetch context about "your query".
 ```
 
-Pronto. Sem configuracao por projeto.
+No per-project setup is required.
 
-O instalador copia o plugin para `~/.config/opencode/plugins/embedding-cache-plugin`.
-Tambem instala o comando global `~/.config/opencode/commands/embedding.md`.
-Esses comandos executam um script local do plugin (`bun .../src/cli.ts`).
+The installer copies the plugin to `~/.config/opencode/plugins/embedding-cache-plugin`.
+It also installs the global command at `~/.config/opencode/commands/embedding.md`.
+These commands execute the plugin CLI script (`bun .../src/cli.ts`).
 
-## O que ele faz
+## What it does
 
-- Escaneia arquivos do projeto respeitando `.gitignore`.
-- Filtra binarios, arquivos sensiveis e arquivos grandes.
-- Gera embeddings com Google (`gemini-embedding-001`).
-- Mantem vetores em memoria durante a sessao.
-- Persiste cache JSON no proprio projeto.
+- Scans project files while respecting `.gitignore`.
+- Filters binaries, sensitive files, and large files.
+- Generates embeddings with Google (`gemini-embedding-001`).
+- Keeps vectors in memory during the session.
+- Persists project index data locally.
 
-No TUI, tambem existem comandos no menu de comandos:
+In TUI, command menu entries are also available:
 
 - `Embedding status`
 - `Embedding test`
 
-Arquivos criados automaticamente no projeto alvo:
+Files created automatically in the target project:
 
-- `.opencode/index-state.json`
-- `.opencode/vector-cache.json`
+- `.index/state.json`
+- `.index/manifest.json`
+- `.index/vectors/**/*.json` (per-file shards)
 
-## Configuracao opcional por projeto
+Indexer logs:
 
-Se quiser customizar, crie `.opencode/indexing.config.json` no projeto.
-Se nao criar, o plugin usa defaults internos.
+- `~/.local/share/opencode/log/embedding-indexer.log`
+- optional override: `OPENCODE_INDEXER_LOG_FILE`
+
+## Optional per-project config
+
+To customize behavior, create `.index/indexing.config.json` in the project.
+If the file is missing, internal defaults are used.
+
+Optional fields for auto-indexing and telemetry:
+
+```json
+{
+  "autoIndexOnStartup": true,
+  "autoIndexOnChange": true,
+  "autoIndexDebounceMs": 1500,
+  "googleEmbeddingCostPer1MInputTokensUsd": 0,
+  "googleEmbedBatchSize": 16,
+  "googleApiMinIntervalMs": 200,
+  "debug": {
+    "enabled": true,
+    "level": "debug",
+    "logPerformance": true,
+    "logApiCalls": true,
+    "logCosts": true
+  }
+}
+```
+
+With debug enabled, `~/.local/share/opencode/log/embedding-indexer.log` records metrics such as:
+
+- cache load time
+- total indexing time and stage breakdown
+- embedding API calls (start/completion/failure)
+- estimated/reported input tokens
+- estimated cost (when `googleEmbeddingCostPer1MInputTokensUsd > 0`)
+- returned context size in `index_search`
+
+Rate-limit and cost controls:
+
+- `googleEmbedBatchSize`: sends multiple chunks per embedding call (fewer requests).
+- `googleApiMinIntervalMs`: minimum delay between embedding calls (helps with 429).
+- Retry with exponential backoff + jitter for `429`, `5xx`, and timeouts.

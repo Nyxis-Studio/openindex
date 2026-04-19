@@ -4,7 +4,7 @@ import { STATE_VERSION } from "./constants"
 import type { IndexState } from "./types"
 
 export function statePath(worktree: string): string {
-  return resolve(worktree, ".opencode", "index-state.json")
+  return resolve(worktree, ".index", "state.json")
 }
 
 export async function loadState(worktree: string): Promise<IndexState> {

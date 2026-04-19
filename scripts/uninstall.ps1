@@ -7,22 +7,22 @@ $testCommandFile = Join-Path $env:USERPROFILE ".config\opencode\commands\embeddi
 
 if (Test-Path $targetRoot) {
   Remove-Item -Recurse -Force $targetRoot
-  Write-Host "Plugin removido de: $targetRoot" -ForegroundColor Green
+  Write-Host "Plugin removed from: $targetRoot" -ForegroundColor Green
 } else {
-  Write-Host "Plugin nao encontrado em: $targetRoot" -ForegroundColor Yellow
+  Write-Host "Plugin not found at: $targetRoot" -ForegroundColor Yellow
 }
 
 if (Test-Path $commandFile) {
   Remove-Item -Force $commandFile
-  Write-Host "Comando global removido: $commandFile" -ForegroundColor Green
+  Write-Host "Global command removed: $commandFile" -ForegroundColor Green
 }
 
 if (Test-Path $statusCommandFile) {
   Remove-Item -Force $statusCommandFile
-  Write-Host "Comando de status removido: $statusCommandFile" -ForegroundColor Green
+  Write-Host "Status command removed: $statusCommandFile" -ForegroundColor Green
 }
 
 if (Test-Path $testCommandFile) {
   Remove-Item -Force $testCommandFile
-  Write-Host "Comando de teste removido: $testCommandFile" -ForegroundColor Green
+  Write-Host "Test command removed: $testCommandFile" -ForegroundColor Green
 }

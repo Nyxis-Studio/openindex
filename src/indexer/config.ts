@@ -6,7 +6,7 @@ const DEFAULT_CONFIG: IndexingConfig = {
   include: ["**/*"],
   exclude: [
     ".git/**",
-    ".opencode/**",
+    ".index/**",
     "node_modules/**",
     "dist/**",
     "build/**",
@@ -22,20 +22,33 @@ const DEFAULT_CONFIG: IndexingConfig = {
   maxChunksPerFile: 300,
   namespace: "default",
   vectorDb: "memory",
-  vectorCacheFile: ".opencode/vector-cache.json",
+  vectorCacheFile: ".index/manifest.json",
   googleModel: "gemini-embedding-001",
   googleApiKey: "",
   googleApiKeyEnv: "GOOGLE_API_KEY",
+  googleEmbeddingCostPer1MInputTokensUsd: 0,
+  googleEmbedBatchSize: 16,
+  googleApiMinIntervalMs: 200,
+  autoIndexOnStartup: true,
+  autoIndexOnChange: true,
+  autoIndexDebounceMs: 1500,
   progressEveryPercent: 5,
   retry: {
     attempts: 5,
     baseDelayMs: 500,
     maxDelayMs: 10000,
   },
+  debug: {
+    enabled: true,
+    level: "debug",
+    logPerformance: true,
+    logApiCalls: true,
+    logCosts: true,
+  },
 }
 
 export async function loadConfig(worktree: string): Promise<IndexingConfig> {
-  const configPath = resolve(worktree, ".opencode", "indexing.config.json")
+  const configPath = resolve(worktree, ".index", "indexing.config.json")
   try {
     const raw = await readFile(configPath, "utf8")
     const parsed = JSON.parse(raw) as Partial<IndexingConfig>
@@ -45,6 +58,10 @@ export async function loadConfig(worktree: string): Promise<IndexingConfig> {
       retry: {
         ...DEFAULT_CONFIG.retry,
         ...(parsed.retry ?? {}),
+      },
+      debug: {
+        ...DEFAULT_CONFIG.debug,
+        ...(parsed.debug ?? {}),
       },
     }
   } catch {

@@ -2,6 +2,7 @@ import type { TuiPlugin, TuiPluginModule } from "@opencode-ai/plugin/tui"
 import { getIndexStatus, testQuery } from "./indexer/inspect"
 import { runIndexing, type IndexingReporter } from "./indexer/run-indexing"
 import { loadConfig } from "./indexer/config"
+import { isLevelEnabled, writeLocalIndexerLog } from "./indexer/local-log"
 import { getProjectVectorStore } from "./indexer/vector-store"
 
 const PLUGIN_ID = "local.code-embedding-indexer"
@@ -227,6 +228,22 @@ async function log(
   message: string,
   extra?: Record<string, unknown>,
 ): Promise<void> {
+  const worktree = api.state.path.worktree
+  const enabled = await isLevelEnabled(worktree, level)
+  if (!enabled) return
+
+  try {
+    await writeLocalIndexerLog({
+      worktree,
+      level,
+      source: "tui",
+      message,
+      ...(extra ? { extra } : {}),
+    })
+  } catch {
+    // Avoid hard failure when local logger is unavailable.
+  }
+
   try {
     await (api.client as any).app.log({
       body: {

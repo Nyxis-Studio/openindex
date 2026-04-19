@@ -35,40 +35,40 @@ $testShellLine = '!`bun "' + $cliPath + '" test "$ARGUMENTS"`'
 
 @(
   "---",
-  "description: Executa indexacao local via plugin",
+  "description: Runs local indexing via plugin",
   "---",
-  "Execute a indexacao local padronizada.",
+  "Run standard local indexing.",
   "",
   $shellLine,
   "",
-  "Responda somente: Indexacao concluida."
+  "Reply only with: Indexing completed."
 ) | Set-Content -Path $commandFile -Encoding UTF8
 
 @(
   "---",
-  "description: Mostra status da indexacao de embeddings",
+  "description: Shows embedding indexing status",
   "---",
-  "Mostre o status atual da indexacao local.",
+  "Show the current local indexing status.",
   "",
   $statusShellLine
 ) | Set-Content -Path $statusCommandFile -Encoding UTF8
 
 @(
   "---",
-  "description: Testa busca semantica nos embeddings locais",
+  "description: Tests semantic search on local embeddings",
   "---",
-  "Use os argumentos como consulta semantica e rode teste:",
+  "Use arguments as a semantic query and run test:",
   "",
   $testShellLine
 ) | Set-Content -Path $testCommandFile -Encoding UTF8
 
 if ($GoogleApiKey -and $GoogleApiKey.Trim().Length -gt 0) {
   setx GOOGLE_API_KEY "$GoogleApiKey" | Out-Null
-  Write-Host "GOOGLE_API_KEY configurada com sucesso (abra novo terminal/OpenCode)." -ForegroundColor Green
+  Write-Host "GOOGLE_API_KEY configured successfully (open a new terminal/OpenCode session)." -ForegroundColor Green
 }
 
-Write-Host "Plugin instalado em: $targetRoot" -ForegroundColor Green
-Write-Host "Comando global instalado em: $commandFile" -ForegroundColor Green
-Write-Host "Comando de status instalado em: $statusCommandFile" -ForegroundColor Green
-Write-Host "Comando de teste instalado em: $testCommandFile" -ForegroundColor Green
-Write-Host "Reinicie o OpenCode e use /embedding" -ForegroundColor Yellow
+Write-Host "Plugin installed at: $targetRoot" -ForegroundColor Green
+Write-Host "Global command installed at: $commandFile" -ForegroundColor Green
+Write-Host "Status command installed at: $statusCommandFile" -ForegroundColor Green
+Write-Host "Test command installed at: $testCommandFile" -ForegroundColor Green
+Write-Host "Restart OpenCode and use /embedding" -ForegroundColor Yellow
