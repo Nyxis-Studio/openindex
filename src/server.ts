@@ -1,15 +1,24 @@
 import { tool, type Plugin, type PluginModule } from "@opencode-ai/plugin"
-import { isAbsolute, relative, resolve } from "node:path"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { loadConfig } from "./indexer/config"
 import { isLevelEnabled, writeLocalIndexerLog } from "./indexer/local-log"
 import { indexSearch } from "./indexer/search"
 import { runIndexing, type IndexingReporter } from "./indexer/run-indexing"
+import { isIndexingLocked } from "./indexer/lock"
+import { bootstrapProject } from "./indexer/bootstrap"
+import { getIndexStatus, testQuery } from "./indexer/inspect"
+import { applyOpenIndexConfig, isOpenIndexCommand } from "./commands"
 
-const PLUGIN_ID = "local.code-embedding-indexer-server"
+const PLUGIN_ID = "local.code-embedding-indexer"
+const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+const SKILL_PATH = resolve(PLUGIN_ROOT, "skills", "index-tool")
 
 const server: Plugin = async ({ client, worktree }) => {
   let missingApiKeyWarned = false
+  let bootstrapWarned = false
   let pendingAutoReasons = new Set<string>()
+  let startupScheduled = false
   let autoTimer: ReturnType<typeof setTimeout> | undefined
   let tail = Promise.resolve()
 
@@ -45,6 +54,17 @@ const server: Plugin = async ({ client, worktree }) => {
     pendingAutoReasons = new Set<string>()
 
     await enqueueExclusive(async () => {
+      const bootstrap = await bootstrapProject(worktree, { pluginRoot: PLUGIN_ROOT })
+      if (!bootstrap.ready) {
+        if (!missingApiKeyWarned) {
+          missingApiKeyWarned = true
+          await log(client, worktree, "warn", "Auto-index skipped: missing Google API key", {
+            configPath: bootstrap.configPath,
+          })
+        }
+        return
+      }
+
       await log(client, worktree, "debug", "Auto-index job started", {
         reason: reasons.join(", ") || "unknown",
       })
@@ -67,9 +87,24 @@ const server: Plugin = async ({ client, worktree }) => {
   }
 
   const scheduleAutoIndex = async (kind: "startup" | "change", reason: string, immediate = false): Promise<void> => {
+    const bootstrap = await bootstrapProject(worktree, { pluginRoot: PLUGIN_ROOT })
+    if (!bootstrap.ready) {
+      if (!bootstrapWarned) {
+        bootstrapWarned = true
+        await log(client, worktree, "warn", "OpenIndex is installed but GOOGLE_API_KEY is not configured", {
+          configPath: bootstrap.configPath,
+        })
+      }
+      return
+    }
+
     const config = await loadConfig(worktree)
     if (kind === "startup" && !config.autoIndexOnStartup) return
     if (kind === "change" && !config.autoIndexOnChange) return
+    if (kind === "startup") {
+      if (startupScheduled) return
+      startupScheduled = true
+    }
 
     pendingAutoReasons.add(reason)
 
@@ -103,9 +138,33 @@ const server: Plugin = async ({ client, worktree }) => {
     await scheduleAutoIndex("change", `watch:${normalized}`, false)
   }
 
-  void scheduleAutoIndex("startup", "plugin-load", true)
+  void bootstrapProject(worktree, { pluginRoot: PLUGIN_ROOT })
+    .then((status) => {
+      void log(client, worktree, "info", "OpenIndex bootstrap checked", {
+        ready: status.ready,
+        apiKeySource: status.apiKeySource,
+        createdConfig: status.createdConfig,
+        createdGitignore: status.createdGitignore,
+        createdInstallMarker: status.createdInstallMarker,
+      })
+      if (status.ready) void scheduleAutoIndex("startup", "plugin-load", true)
+      else {
+        bootstrapWarned = true
+        void log(client, worktree, "warn", "OpenIndex installed. Set GOOGLE_API_KEY or run /embedding-setup.", {
+          configPath: status.configPath,
+        })
+      }
+    })
+    .catch((error) => {
+      void log(client, worktree, "error", "OpenIndex bootstrap failed", {
+        error: String((error as { message?: string })?.message ?? error),
+      })
+    })
 
   return {
+    config: async (config) => {
+      applyOpenIndexConfig(config as Parameters<typeof applyOpenIndexConfig>[0], { skillPath: SKILL_PATH })
+    },
     tool: {
       index_search: tool({
         description: "Search indexed code chunks from local vector cache",
@@ -156,23 +215,23 @@ const server: Plugin = async ({ client, worktree }) => {
       }),
     },
     "command.execute.before": async (input, output) => {
-      if (input.command !== "embedding") return
+      if (!isOpenIndexCommand(input.command)) return
 
       const reporter: IndexingReporter = {
         info(message) {
-          void client.tui.showToast({ body: { message, variant: "info" } })
+          void showToast(client, message, "info")
           void log(client, worktree, "info", message)
         },
         success(message) {
-          void client.tui.showToast({ body: { message, variant: "success" } })
+          void showToast(client, message, "success")
           void log(client, worktree, "info", message)
         },
         error(message) {
-          void client.tui.showToast({ body: { message, variant: "error" } })
+          void showToast(client, message, "error")
           void log(client, worktree, "error", message)
         },
         progress(message) {
-          void client.tui.showToast({ body: { message, variant: "info" } })
+          void showToast(client, message, "info")
           void log(client, worktree, "debug", message)
         },
         log(message, extra) {
@@ -181,27 +240,51 @@ const server: Plugin = async ({ client, worktree }) => {
       }
 
       try {
-        await enqueueExclusive(async () => {
-          await runIndexing(worktree, reporter)
-          missingApiKeyWarned = false
-        })
-        await postSilentMessage(client, input.sessionID, "/embedding indexing completed.")
-        output.parts = [
-          {
-            type: "text",
-            text: "Local indexing has been executed. Reply in one line: Indexing completed.",
-          } as any,
-        ]
+        if (input.command === "embedding") {
+          if (await isIndexingLocked(worktree)) {
+            const message = "Another indexing job is already running. Please wait and try again."
+            await setCommandOutput(client, input.sessionID, output, message, message)
+            return
+          }
+
+          await enqueueExclusive(async () => {
+            await bootstrapProject(worktree, { pluginRoot: PLUGIN_ROOT })
+            await runIndexing(worktree, reporter)
+            missingApiKeyWarned = false
+          })
+          await setCommandOutput(client, input.sessionID, output, "/embedding indexing completed.", "Indexing completed.")
+          return
+        }
+
+        if (input.command === "embedding-status") {
+          const message = await buildStatusMessage(worktree)
+          await setCommandOutput(client, input.sessionID, output, message, message)
+          return
+        }
+
+        if (input.command === "embedding-test") {
+          const query = input.arguments.trim()
+          if (!query) {
+            const message = "Usage: /embedding-test <semantic query>"
+            await setCommandOutput(client, input.sessionID, output, message, message)
+            return
+          }
+
+          const hits = await testQuery(worktree, query, 5)
+          const message = formatTestResults(query, hits)
+          await setCommandOutput(client, input.sessionID, output, message, message)
+          return
+        }
+
+        if (input.command === "embedding-setup") {
+          const message = await buildSetupMessage(worktree)
+          await setCommandOutput(client, input.sessionID, output, message, message)
+          return
+        }
       } catch (error) {
-        const message = `/embedding indexing failed: ${String((error as { message?: string })?.message ?? error)}`
+        const message = `/${input.command} failed: ${String((error as { message?: string })?.message ?? error)}`
         reporter.error(message)
-        await postSilentMessage(client, input.sessionID, message)
-        output.parts = [
-          {
-            type: "text",
-            text: "Indexing failed. Reply in one line asking to check the logs.",
-          } as any,
-        ]
+        await setCommandOutput(client, input.sessionID, output, message, message)
       }
     },
     event: async ({ event }) => {
@@ -239,6 +322,71 @@ function shouldIgnoreWatcherPath(relativePath: string): boolean {
   if (relativePath.startsWith(".git/")) return true
   if (relativePath.startsWith(".index/")) return true
   return false
+}
+
+async function buildStatusMessage(worktree: string): Promise<string> {
+  const bootstrap = await bootstrapProject(worktree, { pluginRoot: PLUGIN_ROOT })
+  const status = await getIndexStatus(worktree)
+  const skillTargets = bootstrap.skillTargetDirs.length > 0 ? bootstrap.skillTargetDirs.join(", ") : "not checked"
+
+  return [
+    "OpenIndex status:",
+    `Plugin: loaded (${PLUGIN_ID})`,
+    "Commands: /embedding, /embedding-status, /embedding-test, /embedding-setup",
+    "Tool: index_search registered by plugin server",
+    `Skill source: ${bootstrap.skillSourceDir || SKILL_PATH}`,
+    `Skill targets: ${skillTargets}`,
+    `Project config: ${bootstrap.configPath}`,
+    `Project ready: ${bootstrap.ready ? "yes" : "no"}`,
+    `Google API key: ${bootstrap.apiKeySource}${bootstrap.apiKeyLocation ? ` (${bootstrap.apiKeyLocation})` : ""}`,
+    `Indexed files: ${status.filesIndexed}`,
+    `Chunks tracked: ${status.chunksTracked}`,
+    `Vectors in memory: ${status.vectorsInMemory}`,
+    `Model: ${status.model}`,
+    `Updated: ${status.updatedAt || "n/a"}`,
+  ].join("\n")
+}
+
+async function buildSetupMessage(worktree: string): Promise<string> {
+  const bootstrap = await bootstrapProject(worktree, { pluginRoot: PLUGIN_ROOT })
+  return [
+    "OpenIndex setup:",
+    "Set a Google API key using one of these options.",
+    "Recommended environment variable:",
+    "PowerShell: setx GOOGLE_API_KEY \"YOUR_KEY_HERE\"",
+    "macOS/Linux: export GOOGLE_API_KEY=\"YOUR_KEY_HERE\"",
+    "Then restart OpenCode Desktop/TUI.",
+    "Alternative project config:",
+    `Edit ${bootstrap.configPath} and set googleApiKeyFile to a file containing the key.`,
+    "Avoid pasting secrets into chat history or command arguments.",
+  ].join("\n")
+}
+
+function formatTestResults(query: string, hits: Awaited<ReturnType<typeof testQuery>>): string {
+  if (hits.length === 0) return `No indexed chunks found for query: ${query}\nRun /embedding first.`
+
+  const lines = [`OpenIndex test results for: ${query}`, ""]
+  for (let i = 0; i < hits.length; i += 1) {
+    const hit = hits[i]
+    const path = String(hit.metadata.path ?? hit.id)
+    const start = hit.metadata.start_line ?? "?"
+    const end = hit.metadata.end_line ?? "?"
+    lines.push(`${i + 1}. ${path}:${start}-${end} (score ${hit.score.toFixed(4)})`)
+  }
+  return lines.join("\n")
+}
+
+async function setCommandOutput(client: any, sessionID: string, output: { parts: unknown[] }, silent: string, visible: string): Promise<void> {
+  await postSilentMessage(client, sessionID, silent)
+  output.parts = [{ type: "text", text: visible } as any]
+}
+
+async function showToast(client: any, message: string, variant: "info" | "success" | "warning" | "error"): Promise<void> {
+  try {
+    await client.tui.showToast({ body: { message, variant } })
+  } catch {
+    // Desktop and non-TUI clients may not expose TUI toast APIs.
+  }
 }
 
 async function postSilentMessage(client: any, sessionID: string, content: string): Promise<void> {

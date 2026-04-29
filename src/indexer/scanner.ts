@@ -13,7 +13,7 @@ export type ScannedFile = {
 }
 
 export async function scanFiles(worktree: string, config: IndexingConfig): Promise<ScannedFile[]> {
-  const gitIgnore = await loadRootGitIgnore(worktree)
+  const gitIgnore = config.respectGitIgnore ? await loadGitIgnore(worktree) : undefined
   const matches = await fg(config.include, {
     cwd: worktree,
     onlyFiles: true,
@@ -45,12 +45,41 @@ export async function scanFiles(worktree: string, config: IndexingConfig): Promi
   return result
 }
 
-async function loadRootGitIgnore(worktree: string) {
-  const gitIgnorePath = resolve(worktree, ".gitignore")
-  const raw = await readFile(gitIgnorePath, "utf8").catch(() => "")
-  if (!raw.trim()) return undefined
+async function loadGitIgnore(worktree: string) {
+  const gitIgnoreFiles = await fg(["**/.gitignore"], {
+    cwd: worktree,
+    onlyFiles: true,
+    dot: true,
+    unique: true,
+    ignore: [".git/**", ".index/**", "node_modules/**"],
+    followSymbolicLinks: false,
+  })
 
   const matcher = ignore()
-  matcher.add(raw)
-  return matcher
+  let hasRules = false
+  for (const relativeGitIgnorePath of gitIgnoreFiles) {
+    const raw = await readFile(resolve(worktree, relativeGitIgnorePath), "utf8").catch(() => "")
+    const baseDir = relativeGitIgnorePath.replace(/(^|\/)\.gitignore$/, "")
+    const rules = raw
+      .split(/\r?\n/)
+      .map((line) => normalizeGitIgnoreRule(line, baseDir))
+      .filter((line) => line.length > 0)
+    if (rules.length > 0) {
+      matcher.add(rules)
+      hasRules = true
+    }
+  }
+
+  return hasRules ? matcher : undefined
+}
+
+function normalizeGitIgnoreRule(line: string, baseDir: string): string {
+  const trimmed = line.trim()
+  if (!trimmed || trimmed.startsWith("#")) return ""
+  if (!baseDir) return trimmed
+
+  const negative = trimmed.startsWith("!")
+  const rule = negative ? trimmed.slice(1) : trimmed
+  const normalized = rule.startsWith("/") ? `${baseDir}${rule}` : `${baseDir}/${rule}`
+  return negative ? `!${normalized}` : normalized
 }

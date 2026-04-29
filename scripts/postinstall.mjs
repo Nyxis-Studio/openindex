@@ -1,4 +1,4 @@
-import { cp, mkdir, rm, stat } from "node:fs/promises"
+import { cp, mkdir, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { homedir } from "node:os"
@@ -8,8 +8,7 @@ const __dirname = dirname(__filename)
 const projectRoot = resolve(__dirname, "..")
 
 const skillSourceDir = resolve(projectRoot, "skills", "index-tool")
-const skillsRoot = resolve(homedir(), ".agents", "skills")
-const skillTargetDir = resolve(skillsRoot, "index-tool")
+const skillTargetDirs = [resolve(homedir(), ".config", "opencode", "skills", "index-tool")]
 
 async function exists(path) {
   try {
@@ -27,10 +26,16 @@ async function installSkill() {
     return
   }
 
-  await mkdir(skillsRoot, { recursive: true })
-  await rm(skillTargetDir, { recursive: true, force: true })
-  await cp(skillSourceDir, skillTargetDir, { recursive: true })
-  console.log(`[openindex] Installed skill: ${skillTargetDir}`)
+  for (const skillTargetDir of skillTargetDirs) {
+    if (await exists(skillTargetDir)) {
+      console.log(`[openindex] Skill already exists, leaving it unchanged: ${skillTargetDir}`)
+      continue
+    }
+
+    await mkdir(dirname(skillTargetDir), { recursive: true })
+    await cp(skillSourceDir, skillTargetDir, { recursive: true })
+    console.log(`[openindex] Installed skill: ${skillTargetDir}`)
+  }
 }
 
 installSkill().catch((error) => {

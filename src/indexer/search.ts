@@ -2,6 +2,7 @@ import { loadConfig } from "./config"
 import { EmbeddingClient } from "./embedding-client"
 import { writeLocalIndexerLog } from "./local-log"
 import { getProjectVectorStore } from "./vector-store"
+import { resolveGoogleApiKey } from "./bootstrap"
 
 export type SearchHit = {
   id: string
@@ -13,9 +14,9 @@ export type SearchHit = {
 export async function indexSearch(worktree: string, query: string, topK = 5): Promise<SearchHit[]> {
   const startedAt = Date.now()
   const config = await loadConfig(worktree)
-  const apiKey = process.env[config.googleApiKeyEnv] || config.googleApiKey
-  if (!apiKey) {
-    throw new Error(`Missing Google API key. Set ${config.googleApiKeyEnv} or googleApiKey in config.`)
+  const apiKey = await resolveGoogleApiKey(config)
+  if (!apiKey.apiKey) {
+    throw new Error(`Missing Google API key. Set ${config.googleApiKeyEnv}, run /embedding-setup, or configure googleApiKeyFile.`)
   }
 
   const cacheLoadStartedAt = Date.now()
@@ -29,7 +30,7 @@ export async function indexSearch(worktree: string, query: string, topK = 5): Pr
   let apiEstimatedCostUsd = 0
 
   const embeddingClient = new EmbeddingClient({
-    apiKey,
+    apiKey: apiKey.apiKey,
     model: config.googleModel,
     retry: config.retry,
     minIntervalMs: config.googleApiMinIntervalMs,
@@ -100,7 +101,8 @@ export async function indexSearch(worktree: string, query: string, topK = 5): Pr
 
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0) return 0
-  const size = Math.min(a.length, b.length)
+  if (a.length !== b.length) return 0
+  const size = a.length
   let dot = 0
   let normA = 0
   let normB = 0

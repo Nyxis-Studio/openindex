@@ -71,7 +71,7 @@ export class FileBackedMemoryVectorStore implements VectorStore {
     for (const record of records) {
       this.records.set(record.id, record)
       ids.add(record.id)
-      if (this.dimension === 0 && record.values.length > 0) {
+      if (record.values.length > 0) {
         this.dimension = record.values.length
       }
     }
@@ -101,6 +101,7 @@ export class FileBackedMemoryVectorStore implements VectorStore {
   async flush(model: string): Promise<void> {
     const startedAt = Date.now()
     this.model = model
+    this.dimension = this.firstVectorDimension()
     this.updatedAt = new Date().toISOString()
 
     let shardWrites = 0
@@ -237,12 +238,19 @@ export class FileBackedMemoryVectorStore implements VectorStore {
   private resolveShardPath(shardRelativePath: string): string {
     return resolve(this.indexRoot, shardRelativePath)
   }
+
+  private firstVectorDimension(): number {
+    for (const record of this.records.values()) {
+      if (record.values.length > 0) return record.values.length
+    }
+    return 0
+  }
 }
 
 const storesByWorktree = new Map<string, Promise<FileBackedMemoryVectorStore>>()
 
 export async function getProjectVectorStore(worktree: string, manifestFile: string): Promise<FileBackedMemoryVectorStore> {
-  const key = resolve(worktree)
+  const key = resolve(worktree, manifestFile)
   const existing = storesByWorktree.get(key)
   if (existing) return existing
 

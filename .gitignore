@@ -1,0 +1,6 @@
+.index/
+.opencode/
+node_modules/
+dist/
+build/
+coverage/

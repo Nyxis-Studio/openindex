@@ -9,7 +9,7 @@ export function chunkTextByLines(input: {
 }): Chunk[] {
   const { text, chunkSizeBytes, overlapLines, maxChunks } = input
   const normalized = text.replace(/\r\n/g, "\n")
-  const lines = normalized.split("\n")
+  const lines = splitOversizedLines(normalized.split("\n"), Math.max(1, chunkSizeBytes))
 
   if (lines.length === 0) return []
 
@@ -46,4 +46,25 @@ export function chunkTextByLines(input: {
   }
 
   return chunks
+}
+
+function splitOversizedLines(lines: string[], chunkSizeBytes: number): string[] {
+  const result: string[] = []
+  for (const line of lines) {
+    if (Buffer.byteLength(line, "utf8") <= chunkSizeBytes) {
+      result.push(line)
+      continue
+    }
+
+    let current = ""
+    for (const char of line) {
+      if (current && Buffer.byteLength(current + char, "utf8") > chunkSizeBytes) {
+        result.push(current)
+        current = ""
+      }
+      current += char
+    }
+    if (current) result.push(current)
+  }
+  return result
 }

@@ -31,15 +31,18 @@ High-level flow:
 1. Scans project files while respecting `.gitignore`
 2. Filters unsupported, sensitive, and oversized files
 3. Splits file content into chunks
-4. Generates embeddings with Google (`gemini-embedding-001` by default)
+4. Generates embeddings with Google (`gemini-embedding-002` by default)
 5. Persists state and vectors under `.index/`
 6. Keeps vector cache in memory for the plugin process
 
 Local index artifacts:
 
+- `.index/indexing.config.json` (auto-created on first use)
 - `.index/state.json`
 - `.index/manifest.json`
 - `.index/vectors/**/*.json`
+
+Do not commit `.index/`; vector shards include source chunk text and embeddings.
 
 Indexer logs:
 
@@ -85,6 +88,7 @@ Use the index_search tool to fetch context about "auto indexing in workspace.rea
 - Run `/embedding` and retry
 - Check `/embedding-status` (`vectors`/`chunks` should be greater than 0)
 - Ensure the query uses project-relevant terminology
+- Check whether the target files are ignored by `.gitignore` (default behavior)
 
 ### API key error
 
@@ -93,6 +97,7 @@ Use the index_search tool to fetch context about "auto indexing in workspace.rea
 
 ### Too many 429s / rate limits
 
+- Prefer `googleEmbeddingMode: "batch"` for indexing when latency is not critical
 - Increase `googleApiMinIntervalMs` in `.index/indexing.config.json`
 - Reduce `googleEmbedBatchSize` if needed
 - Check logs for repeated retries

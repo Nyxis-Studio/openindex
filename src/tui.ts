@@ -4,6 +4,7 @@ import { runIndexing, type IndexingReporter } from "./indexer/run-indexing"
 import { loadConfig } from "./indexer/config"
 import { isLevelEnabled, writeLocalIndexerLog } from "./indexer/local-log"
 import { getProjectVectorStore } from "./indexer/vector-store"
+import { bootstrapProject, saveGoogleApiKeyFile, setProjectGoogleApiKeyFile } from "./indexer/bootstrap"
 
 const PLUGIN_ID = "local.code-embedding-indexer"
 
@@ -11,6 +12,7 @@ const tui: TuiPlugin = async (api) => {
   let running = false
   const worktree = api.state.path.worktree
 
+  void bootstrapTui(api, worktree)
   void prewarmVectorCache(api, worktree)
 
   const unregister = api.command.register(() => [
@@ -63,6 +65,18 @@ const tui: TuiPlugin = async (api) => {
         openTestDialog(api)
       },
     },
+    {
+      title: "Embedding setup",
+      value: "embedding-setup",
+      description: "Configure the Google API key used by OpenIndex",
+      category: "Codebase",
+      slash: {
+        name: "embedding-setup",
+      },
+      onSelect: () => {
+        openSetupDialog(api)
+      },
+    },
   ])
 
   api.lifecycle.onDispose(() => {
@@ -72,15 +86,74 @@ const tui: TuiPlugin = async (api) => {
 
 async function showStatus(api: Parameters<TuiPlugin>[0]): Promise<void> {
   try {
+    const bootstrap = await bootstrapProject(api.state.path.worktree)
     const status = await getIndexStatus(api.state.path.worktree)
     const message =
       `Indexed files: ${status.filesIndexed}, chunks: ${status.chunksTracked}, ` +
-      `vectors: ${status.vectorsInMemory}, model: ${status.model}`
+      `vectors: ${status.vectorsInMemory}, model: ${status.model}, key: ${bootstrap.apiKeySource}`
     api.ui.toast({ variant: "info", message })
-    await postSilentMessage(api, currentSessionID(api), `${message}. Updated: ${status.updatedAt || "n/a"}.`)
+    await postSilentMessage(
+      api,
+      currentSessionID(api),
+      `${message}. Ready: ${bootstrap.ready ? "yes" : "no"}. Config: ${bootstrap.configPath}. Updated: ${status.updatedAt || "n/a"}.`,
+    )
     await log(api, "info", "Embedding status viewed", status as unknown as Record<string, unknown>)
   } catch (error) {
     const message = `Failed to read embedding status: ${String((error as { message?: string })?.message ?? error)}`
+    api.ui.toast({ variant: "error", message })
+    await log(api, "error", message)
+  }
+}
+
+async function bootstrapTui(api: Parameters<TuiPlugin>[0], worktree: string): Promise<void> {
+  try {
+    const status = await bootstrapProject(worktree)
+    await log(api, "info", "OpenIndex bootstrap checked", {
+      ready: status.ready,
+      apiKeySource: status.apiKeySource,
+      createdConfig: status.createdConfig,
+      createdGitignore: status.createdGitignore,
+      createdInstallMarker: status.createdInstallMarker,
+    })
+    if (!status.ready) {
+      api.ui.toast({ variant: "warning", message: "OpenIndex installed. Run /embedding-setup or set GOOGLE_API_KEY." })
+    }
+  } catch (error) {
+    await log(api, "error", "OpenIndex bootstrap failed", {
+      error: String((error as { message?: string })?.message ?? error),
+    })
+  }
+}
+
+function openSetupDialog(api: Parameters<TuiPlugin>[0]): void {
+  api.ui.dialog.replace(() =>
+    api.ui.DialogPrompt({
+      title: "Google API key",
+      placeholder: "Paste GOOGLE_API_KEY for OpenIndex",
+      onCancel: () => api.ui.dialog.clear(),
+      onConfirm: (value) => {
+        api.ui.dialog.clear()
+        const apiKey = value.trim()
+        if (!apiKey) {
+          api.ui.toast({ variant: "warning", message: "Google API key was not configured." })
+          return
+        }
+        void configureGoogleApiKey(api, apiKey)
+      },
+    }),
+  )
+}
+
+async function configureGoogleApiKey(api: Parameters<TuiPlugin>[0], apiKey: string): Promise<void> {
+  try {
+    const keyPath = await saveGoogleApiKeyFile(apiKey)
+    await setProjectGoogleApiKeyFile(api.state.path.worktree, keyPath)
+    await bootstrapProject(api.state.path.worktree)
+    api.ui.toast({ variant: "success", message: "Google API key configured for OpenIndex." })
+    await postSilentMessage(api, currentSessionID(api), `OpenIndex Google API key configured at ${keyPath}. Run /embedding.`)
+    await log(api, "info", "Google API key configured", { keyPath })
+  } catch (error) {
+    const message = `Failed to configure Google API key: ${String((error as { message?: string })?.message ?? error)}`
     api.ui.toast({ variant: "error", message })
     await log(api, "error", message)
   }
@@ -246,12 +319,10 @@ async function log(
 
   try {
     await (api.client as any).app.log({
-      body: {
-        service: "code-indexer",
-        level,
-        message,
-        ...(extra ? { extra } : {}),
-      },
+      service: "code-indexer",
+      level,
+      message,
+      ...(extra ? { extra } : {}),
     })
   } catch {
     // Avoid hard failure when logger is unavailable.

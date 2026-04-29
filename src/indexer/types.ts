@@ -14,9 +14,12 @@ export type DebugConfig = {
   logCosts: boolean
 }
 
+export type GoogleEmbeddingMode = "batch" | "sync"
+
 export type IndexingConfig = {
   include: string[]
   exclude: string[]
+  respectGitIgnore: boolean
   maxFileSizeBytes: number
   chunkSizeBytes: number
   chunkOverlapLines: number
@@ -26,9 +29,13 @@ export type IndexingConfig = {
   vectorCacheFile: string
   googleModel: string
   googleApiKey?: string
+  googleApiKeyFile?: string
   googleApiKeyEnv: string
   googleEmbeddingCostPer1MInputTokensUsd: number
+  googleEmbeddingMode: GoogleEmbeddingMode
   googleEmbedBatchSize: number
+  googleBatchPollIntervalMs: number
+  googleBatchTimeoutMs: number
   googleApiMinIntervalMs: number
   autoIndexOnStartup: boolean
   autoIndexOnChange: boolean

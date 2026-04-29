@@ -10,9 +10,10 @@ $commandsDir = Join-Path $env:USERPROFILE ".config\opencode\commands"
 $commandFile = Join-Path $commandsDir "embedding.md"
 $statusCommandFile = Join-Path $commandsDir "embedding-status.md"
 $testCommandFile = Join-Path $commandsDir "embedding-test.md"
-$skillsRoot = Join-Path $env:USERPROFILE ".agents\skills"
+$setupCommandFile = Join-Path $commandsDir "embedding-setup.md"
+$opencodeSkillsRoot = Join-Path $env:USERPROFILE ".config\opencode\skills"
 $skillSourceDir = Join-Path $sourceRoot "skills\index-tool"
-$skillTargetDir = Join-Path $skillsRoot "index-tool"
+$skillTargetDirs = @((Join-Path $opencodeSkillsRoot "index-tool"))
 
 if (Test-Path $targetRoot) {
   Remove-Item -Recurse -Force $targetRoot
@@ -22,6 +23,7 @@ New-Item -ItemType Directory -Path $targetRoot -Force | Out-Null
 
 Copy-Item (Join-Path $sourceRoot "package.json") $targetRoot -Force
 Copy-Item (Join-Path $sourceRoot "src") (Join-Path $targetRoot "src") -Recurse -Force
+Copy-Item (Join-Path $sourceRoot "scripts") (Join-Path $targetRoot "scripts") -Recurse -Force
 if (Test-Path (Join-Path $sourceRoot "README.md")) {
   Copy-Item (Join-Path $sourceRoot "README.md") $targetRoot -Force
 }
@@ -65,12 +67,22 @@ $testShellLine = '!`bun "' + $cliPath + '" test "$ARGUMENTS"`'
   $testShellLine
 ) | Set-Content -Path $testCommandFile -Encoding UTF8
 
+@(
+  "---",
+  "description: Shows OpenIndex Google API key setup instructions",
+  "---",
+  "Configure GOOGLE_API_KEY or googleApiKeyFile for OpenIndex. Avoid pasting secrets into chat history."
+) | Set-Content -Path $setupCommandFile -Encoding UTF8
+
 if (Test-Path $skillSourceDir) {
-  New-Item -ItemType Directory -Path $skillsRoot -Force | Out-Null
-  if (Test-Path $skillTargetDir) {
-    Remove-Item -Recurse -Force $skillTargetDir
+  foreach ($skillTargetDir in $skillTargetDirs) {
+    New-Item -ItemType Directory -Path (Split-Path $skillTargetDir -Parent) -Force | Out-Null
+    if (Test-Path $skillTargetDir) {
+      Write-Host "Skill already exists, leaving it unchanged: $skillTargetDir" -ForegroundColor Yellow
+    } else {
+      Copy-Item $skillSourceDir $skillTargetDir -Recurse -Force
+    }
   }
-  Copy-Item $skillSourceDir $skillTargetDir -Recurse -Force
 }
 
 if ($GoogleApiKey -and $GoogleApiKey.Trim().Length -gt 0) {
@@ -82,7 +94,10 @@ Write-Host "Plugin installed at: $targetRoot" -ForegroundColor Green
 Write-Host "Global command installed at: $commandFile" -ForegroundColor Green
 Write-Host "Status command installed at: $statusCommandFile" -ForegroundColor Green
 Write-Host "Test command installed at: $testCommandFile" -ForegroundColor Green
-if (Test-Path $skillTargetDir) {
-  Write-Host "Skill installed at: $skillTargetDir" -ForegroundColor Green
+Write-Host "Setup command installed at: $setupCommandFile" -ForegroundColor Green
+foreach ($skillTargetDir in $skillTargetDirs) {
+  if (Test-Path $skillTargetDir) {
+    Write-Host "Skill installed at: $skillTargetDir" -ForegroundColor Green
+  }
 }
 Write-Host "Restart OpenCode and use /embedding" -ForegroundColor Yellow

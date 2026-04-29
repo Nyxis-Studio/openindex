@@ -10,6 +10,8 @@ import { scanFiles } from "./scanner"
 import { loadState, saveState } from "./state"
 import type { IndexSummary, PreparedFile, VectorRecord } from "./types"
 import { getProjectVectorStore } from "./vector-store"
+import { withIndexingLock } from "./lock"
+import { resolveGoogleApiKey } from "./bootstrap"
 
 export type IndexingReporter = {
   info(message: string): void
@@ -20,8 +22,12 @@ export type IndexingReporter = {
 }
 
 export async function runIndexing(worktree: string, reporter: IndexingReporter): Promise<IndexSummary> {
+  return withIndexingLock(worktree, () => runIndexingUnlocked(worktree, reporter))
+}
+
+async function runIndexingUnlocked(worktree: string, reporter: IndexingReporter): Promise<IndexSummary> {
   const startedAt = Date.now()
-  const config = await loadConfig(worktree)
+  const config = await loadConfig(worktree, { ensureFile: true })
   await cleanupLegacyArtifacts(worktree)
   const state = await loadState(worktree)
 
@@ -36,10 +42,10 @@ export async function runIndexing(worktree: string, reporter: IndexingReporter):
     apiEstimatedCostUsd: 0,
   }
 
-  const googleApiKey = process.env[config.googleApiKeyEnv] || config.googleApiKey
-  if (!googleApiKey) {
+  const googleApiKey = await resolveGoogleApiKey(config)
+  if (!googleApiKey.apiKey) {
     throw new Error(
-      `Missing Google API key. Set ${config.googleApiKeyEnv} in environment or googleApiKey in .index/indexing.config.json`,
+      `Missing Google API key. Set ${config.googleApiKeyEnv} in environment, run /embedding-setup, or configure googleApiKeyFile.`,
     )
   }
 
@@ -81,12 +87,14 @@ export async function runIndexing(worktree: string, reporter: IndexingReporter):
   }
 
   const embeddingClient = new EmbeddingClient({
-    apiKey: googleApiKey,
+    apiKey: googleApiKey.apiKey,
     model: config.googleModel,
     retry: config.retry,
     telemetry: onTelemetry,
     costPer1MInputTokensUsd: config.googleEmbeddingCostPer1MInputTokensUsd,
     minIntervalMs: config.googleApiMinIntervalMs,
+    batchPollIntervalMs: config.googleBatchPollIntervalMs,
+    batchTimeoutMs: config.googleBatchTimeoutMs,
   })
 
   const summary: IndexSummary = {
@@ -205,12 +213,14 @@ export async function runIndexing(worktree: string, reporter: IndexingReporter):
 
     const batchSize = Math.max(1, Math.floor(config.googleEmbedBatchSize || 1))
     for (const chunkBatch of batches(file.chunks, batchSize)) {
-      const vectors = await embeddingClient.embedDocumentBatch(
-        chunkBatch.map((chunk) => ({
-          content: chunk.text,
-          title: `${file.relativePath}:${chunk.startLine}-${chunk.endLine}`,
-        })),
-      )
+      const batchItems = chunkBatch.map((chunk) => ({
+        content: chunk.text,
+        title: `${file.relativePath}:${chunk.startLine}-${chunk.endLine}`,
+      }))
+      const vectors =
+        config.googleEmbeddingMode === "batch"
+          ? await embeddingClient.embedDocumentBatchJob(batchItems)
+          : await embeddingClient.embedDocumentBatch(batchItems)
 
       if (vectors.length !== chunkBatch.length) {
         throw new Error(
